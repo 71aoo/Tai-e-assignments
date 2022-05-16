@@ -26,19 +26,15 @@ import pascal.taie.analysis.dataflow.analysis.AbstractDataflowAnalysis;
 import pascal.taie.analysis.graph.cfg.CFG;
 import pascal.taie.config.AnalysisConfig;
 import pascal.taie.ir.IR;
-import pascal.taie.ir.exp.ArithmeticExp;
-import pascal.taie.ir.exp.BinaryExp;
-import pascal.taie.ir.exp.BitwiseExp;
-import pascal.taie.ir.exp.ConditionExp;
-import pascal.taie.ir.exp.Exp;
-import pascal.taie.ir.exp.IntLiteral;
-import pascal.taie.ir.exp.ShiftExp;
-import pascal.taie.ir.exp.Var;
+import pascal.taie.ir.exp.*;
 import pascal.taie.ir.stmt.DefinitionStmt;
 import pascal.taie.ir.stmt.Stmt;
 import pascal.taie.language.type.PrimitiveType;
 import pascal.taie.language.type.Type;
 import pascal.taie.util.AnalysisException;
+
+import java.util.List;
+import java.util.Set;
 
 public class ConstantPropagation extends
         AbstractDataflowAnalysis<Stmt, CPFact> {
@@ -57,18 +53,32 @@ public class ConstantPropagation extends
     @Override
     public CPFact newBoundaryFact(CFG<Stmt> cfg) {
         // TODO - finish me
-        return null;
+        CPFact cpFact = new CPFact();
+        // 处理变量范围
+        List<Var> params = cfg.getIR().getParams();
+        for (Var var : params){
+            if (canHoldInt(var)){
+                // 为什么初始化为NAC
+                cpFact.update(var, Value.getNAC());
+            }
+        }
+        return cpFact;
     }
 
     @Override
     public CPFact newInitialFact() {
         // TODO - finish me
-        return null;
+        return new CPFact();
     }
 
     @Override
     public void meetInto(CPFact fact, CPFact target) {
         // TODO - finish me
+        // 会不会存在key不相等的问题
+        Set<Var> vars = fact.keySet();
+        for (Var var : vars){
+            target.update(var, meetValue(fact.get(var), target.get(var)));
+        }
     }
 
     /**
@@ -76,13 +86,34 @@ public class ConstantPropagation extends
      */
     public Value meetValue(Value v1, Value v2) {
         // TODO - finish me
-        return null;
+        if (v1.isNAC() || v2.isNAC()){
+            return Value.getNAC();
+        }
+        if (v1.isUndef() || v2.isUndef()){
+            return v1.isUndef() ? v2 : v1;
+        }
+        if (v1.isConstant() && v2.isConstant()){
+            return v1.getConstant() == v2.getConstant() ?
+                    Value.makeConstant(v1.getConstant()) :
+                    Value.getNAC();
+        }
+        return Value.getNAC();
     }
 
     @Override
     public boolean transferNode(Stmt stmt, CPFact in, CPFact out) {
         // TODO - finish me
-        return false;
+        if (stmt instanceof DefinitionStmt definitionStmt){
+            LValue lValue = definitionStmt.getLValue();
+            RValue rValue = definitionStmt.getRValue();
+            if (lValue instanceof Var var && canHoldInt(var)){
+                CPFact tmpFact = new CPFact();
+                tmpFact.copyFrom(in);
+                tmpFact.update(var, evaluate(rValue, in));
+                return out.copyFrom(tmpFact);
+            }
+        }
+        return out.copyFrom(in);
     }
 
     /**
@@ -112,6 +143,80 @@ public class ConstantPropagation extends
      */
     public static Value evaluate(Exp exp, CPFact in) {
         // TODO - finish me
-        return null;
+        if (exp instanceof IntLiteral intLiteral){
+            return Value.makeConstant(intLiteral.getValue());
+        }
+        if (exp instanceof Var var){
+            return in.get(var);
+        }
+        if (exp instanceof BinaryExp binaryExp){
+
+            Var operand1 = binaryExp.getOperand1();
+            Var operand2 = binaryExp.getOperand2();
+            Value value1 = in.get(operand1);
+            Value value2 = in.get(operand2);
+
+            if (value1.isNAC() || value2.isNAC()){
+                return Value.getNAC();
+            }
+
+            if (value1.isConstant() && value2.isConstant()){
+                String operator = binaryExp.getOperator().toString();
+                int c1 = value1.getConstant();
+                int c2 = value2.getConstant();
+
+                switch (operator){
+                    case "+":
+                        return Value.makeConstant(c1 + c2);
+                    case "-":
+                        return Value.makeConstant(c1 - c2);
+                    case "*":
+                        return Value.makeConstant(c1 * c2);
+                    case "/":
+                        return c2 == 0 ?
+                                Value.getNAC() :
+                                Value.makeConstant(c1 / c2);
+                    case "==":
+                        return c1 == c2 ?
+                                Value.makeConstant(1) :
+                                Value.makeConstant(0);
+                    case "!=":
+                        return c1 != c2 ?
+                                Value.makeConstant(1) :
+                                Value.makeConstant(0);
+                    case "<":
+                        return c1 < c2 ?
+                                Value.makeConstant(1) :
+                                Value.makeConstant(0);
+                    case ">":
+                        return c1 > c2 ?
+                                Value.makeConstant(1) :
+                                Value.makeConstant(0);
+                    case "<=":
+                        return c1 <= c2 ?
+                                Value.makeConstant(1) :
+                                Value.makeConstant(0);
+                    case ">=":
+                        return c1 >= c2 ?
+                                Value.makeConstant(1) :
+                                Value.makeConstant(0);
+                    case "<<":
+                        return Value.makeConstant(c1 << c2);
+                    case ">>":
+                        return Value.makeConstant(c1 >> c2);
+                    case ">>>":
+                        return Value.makeConstant(c1 >>> c2);
+                    case "|":
+                        return Value.makeConstant(c1 | c2);
+                    case "&":
+                        return Value.makeConstant(c1 & c2);
+                    case "^":
+                        return Value.makeConstant(c1 ^ c2);
+                    default:
+                        return Value.getUndef();
+                }
+            }
+        }
+        return Value.getUndef();
     }
 }
