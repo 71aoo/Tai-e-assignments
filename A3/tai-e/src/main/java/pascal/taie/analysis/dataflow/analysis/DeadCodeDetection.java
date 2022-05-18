@@ -115,10 +115,7 @@ public class DeadCodeDetection extends MethodAnalysis {
                 Set<Edge<Stmt>> outEdgesOf = cfg.getOutEdgesOf(stmt);
                 for (Edge<Stmt> edge : outEdgesOf){
                     if (edge.getKind() == deadEdgeKind){
-                        Stmt target = edge.getTarget();
-                        deadCode.add(target);
-                        LinkedList<Stmt> stmts = new LinkedList<>(cfg.getSuccsOf(target));
-                        checkIfBranchDeadCode(stmts, cfg, deadCode);
+                        checkIfBranchDeadCode(edge.getTarget(), ifStmt, cfg, deadCode);
                     }
                 }
             }
@@ -160,38 +157,18 @@ public class DeadCodeDetection extends MethodAnalysis {
         }
     }
 
-    /**
-     * BFS 检测 if 分支 deadCode
-     * @param stmts
-     * @param cfg
-     * @param deadCode
-     */
-    public void checkIfBranchDeadCode(LinkedList<Stmt> stmts, CFG<Stmt> cfg, Set<Stmt> deadCode){
-        while (!stmts.isEmpty()){
-            Stmt poll = stmts.poll();
-            if (cfg.isExit(poll)){
-                continue;
+    public void checkIfBranchDeadCode(Stmt stmt,If ifStmt, CFG<Stmt> cfg, Set<Stmt> deadCode){
+        // 默认为 deadCode
+        deadCode.add(stmt);
+        for (Stmt pred : cfg.getPredsOf(stmt)){
+            // 前驱不是 if 判断语句， 且不是 deadCode，则其可能是不是 deadCode
+            if (pred != ifStmt && !deadCode.contains(pred)){
+                deadCode.remove(stmt);
             }
-            // 默认为deadCode
-            deadCode.add(poll);
-            Set<Stmt> predsOf = cfg.getPredsOf(poll);
-            for (Stmt s : predsOf){
-                // 前驱有一个不为deadCode，则其可能不是deadCode
-                if (!deadCode.contains(s)){
-                    deadCode.remove(poll);
-                }
-            }
-            stmts.addAll(cfg.getSuccsOf(poll));
         }
+        checkBranchDeadCode(stmt, cfg, deadCode);
     }
 
-    /**
-     * DFS 检测 switch 分支 deadCode
-     * @param stmt
-     * @param switchStmt
-     * @param cfg
-     * @param deadCode
-     */
     public void checkSwitchBranchDeadCode(Stmt stmt, SwitchStmt switchStmt, CFG<Stmt> cfg, Set<Stmt> deadCode){
         // 默认为 deadCode
         deadCode.add(stmt);
@@ -201,8 +178,31 @@ public class DeadCodeDetection extends MethodAnalysis {
                 deadCode.remove(stmt);
             }
         }
-        for (Stmt succ : cfg.getSuccsOf(stmt)){
-            checkSwitchBranchDeadCode(succ, switchStmt, cfg, deadCode);
+        checkBranchDeadCode(stmt, cfg, deadCode);
+    }
+
+    /**
+     * DFS 对分支 deadCode 进行检测
+     * @param stmt
+     * @param cfg
+     * @param deadCode
+     */
+    public void checkBranchDeadCode(Stmt stmt, CFG<Stmt> cfg, Set<Stmt> deadCode){
+        // 本身不是 deadCode， 其后驱更不可能是
+        if (deadCode.contains(stmt)){
+            for (Stmt succ : cfg.getSuccsOf(stmt)){
+                if (!cfg.isExit(succ)){
+                    // 默认为 deadCode
+                    deadCode.add(succ);
+                    // 前驱可达，则其亦可达
+                    for (Stmt pred : cfg.getPredsOf(succ)){
+                        if (!deadCode.contains(pred)){
+                            deadCode.remove(succ);
+                        }
+                    }
+                    checkBranchDeadCode(succ, cfg, deadCode);
+                }
+            }
         }
     }
 
